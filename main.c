@@ -1,9 +1,10 @@
 /******************************************************************************
- * 2016 WWU Direct Conversion VNA
- * Author: Rob Frohne
+ * 2016 WWU Single Sample VNA
+ * Authors: Aaron Covrig and Victor Wang
+ * We would like to thank our Professor and advisor for this project Dr. Frohne
  * Thanks to Gerard Sequeira, 43oh for the backchannel UART ideas and to TI for
  * the examples and driverlib.
-*******************************************************************************/
+*/
 
 #define USE_SPI
 /* DriverLib Includes */
@@ -20,11 +21,15 @@
 #include "printf.h"
 #include <math.h>
 
+// Other files to include (seperate out code for future revisions)
+//#include "CDCE925.h" // clock configuration file
+//#include "ADS131A04.h" // adc configuration file
+//#include "operating_code.h" // general runtime code to be called by the control code
 
 /* Globals */
 
 /* I2C constants */
-#define SLAVE_ADDRESS       0x06a // Primary address 0x6a works for 0xd4
+#define SLAVE_ADDRESS      0x64 // Primary address 1100100b
 #define NUM_OF_REG_BYTES 0x6a-0x10
 #define NUM_OF_CHANGED_REG_BYTES 10
 #define NUM_BANDS 25
@@ -54,7 +59,7 @@ static volatile bool justSending;
 /* Initial data structure for I2C parameters.
  * We will only change the parameters that need changed.
  */
-const struct VersaClockRegisters { /* VersaClock Register Data
+const struct clock_reg { /* VersaClock Register Data
 	 * We first initialize registers for 1MHz operation.
 	 * Then when we change frequencies, we change only the
 	 * registers that change when frequencies change.
@@ -70,7 +75,16 @@ const struct VersaClockRegisters { /* VersaClock Register Data
 	uint8_t registerValues[NUM_BANDS][NUM_OF_CHANGED_REG_BYTES];
 	/* The init1MHzRegisterValues are for the 1 MHz to 1.199 MHz band. */
 	uint8_t init1MHzRegisterValues[NUM_OF_REG_BYTES];
-} versaClockRegisters =
+
+	// settings for 80 Mhz and 80.00253... Mhz
+}	clock_reg =
+		{0x01,0x00,0xB4,0x02,0x02,0x50,0x60,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+//}	PLL1_reg =
+//		{0x00,0x00,0x00,0x00,0x6D,0x02,0x00,0x00,0xB4,0xDA,0xB2,0xEA,0xB4,0x0A,0xB2,0xE8};
+//}	PLL2_reg =
+//		{0x00,0x00,0x00,0x00,0x6D,0x02,0x00,0x02,0xB4,0x6A,0xB4,0xEA,0xB4,0x6A,0xBA,0xE8};
+/*
+} clock_reg =
 		{{2,1,2,5},
 		{0x17,0x1e,0x2d,0x3b},
 		{0x17,0x18,0x1e,0x2d,0x2e,0x3b,0x3c,0x3d,0x3e,0x3f},
@@ -109,6 +123,7 @@ const struct VersaClockRegisters { /* VersaClock Register Data
 		 0x0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
 		 0x0,0x0,0x0,0x0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0x3B,
 		 0x1,0x3B,0x1,0x3B,0x0,0x3B,0x0,0xFF,0x64}};
+*/
 
 /* I2C Master Configuration Parameter */
 const eUSCI_I2C_MasterConfig i2cConfig =
@@ -441,8 +456,8 @@ int main(void)
     for (i=0x10;i<NUM_OF_REG_BYTES+0x10;i++)
     {
     	printf("%x    %x       %x\n",i,i2cRXData[i],
-    			versaClockRegisters.init1MHzRegisterValues[i-0x10]);
-    	if(i2cRXData[i]!=versaClockRegisters.init1MHzRegisterValues[i-0x10])
+    			clock_reg.init1MHzRegisterValues[i-0x10]);
+    	if(i2cRXData[i]!=clock_reg.init1MHzRegisterValues[i-0x10])
     		printf("They don't match!\n");
     }
 
@@ -454,11 +469,11 @@ int main(void)
     printf("Address,  Read,    Tried to Write\n");
     for (i=0;i<NUM_OF_CHANGED_REG_BYTES; i++)
     {
-    		printf("%x       %x        %x\n",versaClockRegisters.changedAddresses[i],
-    				i2cRXData[versaClockRegisters.changedAddresses[i]],
-					versaClockRegisters.registerValues[12][i]);
-    		if(i2cRXData[versaClockRegisters.changedAddresses[i]]!=
-    				versaClockRegisters.registerValues[12][i])
+    		printf("%x       %x        %x\n",clock_reg.changedAddresses[i],
+    				i2cRXData[clock_reg.changedAddresses[i]],
+					clock_reg.registerValues[12][i]);
+    		if(i2cRXData[clock_reg.changedAddresses[i]]!=
+    				clock_reg.registerValues[12][i])
     			printf("VersaClock Registers did NOT match!\n");
     }*/
     /*while(1)
@@ -748,7 +763,7 @@ void dumpI2C(void)
  */
 void initVersaClock1MHz(void)
 {
-	writeVersaClockBlock(versaClockRegisters.init1MHzRegisterValues, firstReg, NUM_OF_REG_BYTES);
+	writeVersaClockBlock(clock_reg.init1MHzRegisterValues, firstReg, NUM_OF_REG_BYTES);
 }
 
 /* Send a block of data, bumBytes long and store it in the I2C address at blockStart.
@@ -782,21 +797,21 @@ int updateVersaclockRegs(long int frequency)
 	static int presentBandIndex=0;
 	frequency = frequency/1000;
 
-	if((versaClockRegisters.frequencyBandLimit[presentBandIndex] <= frequency)&
-			(frequency<versaClockRegisters.frequencyBandLimit[presentBandIndex+1])) return 1;
+	if((clock_reg.frequencyBandLimit[presentBandIndex] <= frequency)&
+			(frequency<clock_reg.frequencyBandLimit[presentBandIndex+1])) return 1;
 	for(i=0;i<NUM_BANDS;i++)
 	{
-		if((versaClockRegisters.frequencyBandLimit[i] <= frequency)&
-				(frequency<versaClockRegisters.frequencyBandLimit[i+1]))
+		if((clock_reg.frequencyBandLimit[i] <= frequency)&
+				(frequency<clock_reg.frequencyBandLimit[i+1]))
 		{
 			presentBandIndex = i;  // We found the band.
 			for(j=0;j<NUM_BAND_BLOCKS;j++)
 			{
-				writeVersaClockBlock(&(versaClockRegisters.registerValues[i][offset]),
-						versaClockRegisters.blockFirstAddress[j],
-						versaClockRegisters.blockNumBytes[j]);
+				writeVersaClockBlock(&(clock_reg.registerValues[i][offset]),
+						clock_reg.blockFirstAddress[j],
+						clock_reg.blockNumBytes[j]);
 				for(m=0;m<100;m++);
-				offset += versaClockRegisters.blockNumBytes[j];
+				offset += clock_reg.blockNumBytes[j];
 			}
 		}
 	}
